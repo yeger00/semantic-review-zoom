@@ -1,67 +1,33 @@
 import { useState } from 'react'
-import AuthGate, { getStoredToken, clearStoredToken } from './components/AuthGate'
-import PRSelector from './components/PRSelector'
+import FileInput from './components/FileInput'
 import LayerNav from './components/LayerNav'
 import PackageLayer from './components/layers/PackageLayer'
 import SymbolLayer from './components/layers/SymbolLayer'
 import DiffLayer from './components/layers/DiffLayer'
 import { getPackageLayer, getSymbolLayer, getDiffLayer, type SemanticReview } from './lib/parser'
 
-type Screen = 'auth' | 'select' | 'review'
-
 export default function App() {
-  const [token, setToken] = useState<string | null>(getStoredToken)
-  const [screen, setScreen] = useState<Screen>(token ? 'select' : 'auth')
   const [review, setReview] = useState<SemanticReview | null>(null)
-  const [prTitle, setPrTitle] = useState('')
   const [activeTab, setActiveTab] = useState('packages')
 
-  function handleAuth(t: string) {
-    setToken(t)
-    setScreen('select')
-  }
-
-  function handleClearToken() {
-    clearStoredToken()
-    setToken(null)
-    setScreen('auth')
-    setReview(null)
-  }
-
-  function handleSelectReview(r: SemanticReview, title: string) {
+  function handleLoad(r: SemanticReview) {
     setReview(r)
-    setPrTitle(title)
     setActiveTab('packages')
-    setScreen('review')
   }
 
-  function handleBackToSelect() {
-    setScreen('select')
+  function handleBack() {
     setReview(null)
   }
 
-  if (screen === 'auth' || !token) {
-    return <AuthGate onAuth={handleAuth} />
+  if (!review) {
+    return <FileInput onLoad={handleLoad} />
   }
-
-  if (screen === 'select') {
-    return (
-      <PRSelector
-        token={token}
-        onSelect={handleSelectReview}
-        onClearToken={handleClearToken}
-      />
-    )
-  }
-
-  // Review screen
-  if (!review) return null
 
   const packageLayer = getPackageLayer(review)
   const symbolLayer = getSymbolLayer(review)
   const diffLayer = getDiffLayer(review)
 
-  const NAV_HEIGHT = 76 // px — fixed bottom nav height
+  const NAV_HEIGHT = 76
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -78,7 +44,7 @@ export default function App() {
         }}
       >
         <button
-          onClick={handleBackToSelect}
+          onClick={handleBack}
           style={{
             background: 'none',
             border: 'none',
@@ -89,7 +55,7 @@ export default function App() {
             minHeight: 36,
             flexShrink: 0,
           }}
-          aria-label="Back to PR list"
+          aria-label="Load another file"
         >
           ←
         </button>
@@ -104,7 +70,7 @@ export default function App() {
               whiteSpace: 'nowrap',
             }}
           >
-            #{review.pr.number} {prTitle}
+            #{review.pr.number} {review.pr.title}
           </div>
           <div style={{ fontSize: 11, color: '#8b949e', marginTop: 1 }}>
             {review.pr.head} → {review.pr.base}
@@ -114,23 +80,13 @@ export default function App() {
 
       {/* Layer panel */}
       <main
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          paddingBottom: NAV_HEIGHT,
-        }}
+        style={{ flex: 1, overflowY: 'auto', paddingBottom: NAV_HEIGHT }}
         role="tabpanel"
         aria-label={activeTab}
       >
-        {activeTab === 'packages' && packageLayer && (
-          <PackageLayer layer={packageLayer} />
-        )}
-        {activeTab === 'symbols' && symbolLayer && (
-          <SymbolLayer layer={symbolLayer} />
-        )}
-        {activeTab === 'diffs' && diffLayer && (
-          <DiffLayer layer={diffLayer} />
-        )}
+        {activeTab === 'packages' && packageLayer && <PackageLayer layer={packageLayer} />}
+        {activeTab === 'symbols' && symbolLayer && <SymbolLayer layer={symbolLayer} />}
+        {activeTab === 'diffs' && diffLayer && <DiffLayer layer={diffLayer} />}
       </main>
 
       <LayerNav activeTab={activeTab} onChange={setActiveTab} />
