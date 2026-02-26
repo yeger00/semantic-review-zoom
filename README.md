@@ -58,7 +58,7 @@ Replace `42` with your PR number. Claude will:
 
 ### 4. View in the web app
 
-Open `https://YOUR_USERNAME.github.io/semantic-pr-zoom/` (or run locally — see below), enter your GitHub PAT, search for your repo, and select the PR.
+Open `https://YOUR_USERNAME.github.io/semantic-review-zoom/` (or run locally — see below), enter your GitHub PAT, search for your repo, and select the PR.
 
 ## Web App
 
@@ -72,7 +72,7 @@ npm install
 npm run dev
 ```
 
-Then open `http://localhost:5173/semantic-pr-zoom/`.
+Then open `http://localhost:5173/semantic-review-zoom/`.
 
 ### Deploy to GitHub Pages
 
