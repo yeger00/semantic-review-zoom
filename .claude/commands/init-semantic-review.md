@@ -1,284 +1,293 @@
 # init-semantic-review
 
-Bootstrap semantic PR review scripts for this project. Generates project-specific bash scripts that extract semantic structure from pull request diffs using tools already installed on the system.
+Bootstrap semantic zoom review scripts for this project. Generates a project-specific `build_layers.sh` that produces a semantic review JSON where nodes form a zoom hierarchy — coarse overview at the top, fine-grained diffs at the bottom.
 
 ## Instructions
 
-You are setting up the `semantic-pr-zoom` analysis infrastructure for this project. Follow these steps carefully.
-
 ### Step 1: Detect Languages and Tools
 
-Scan the repository to determine what is in use:
+Scan the repository:
 
-**Languages** — look for these files:
 ```bash
-find . -maxdepth 4 -not -path '*/\.*' -not -path '*/vendor/*' -not -path '*/node_modules/*' \
+# Languages
+find . -maxdepth 4 \
+  -not -path '*/\.*' -not -path '*/vendor/*' -not -path '*/node_modules/*' \
   \( -name "*.go" -o -name "go.mod" \
-  -o -name "*.py" -o -name "pyproject.toml" -o -name "setup.py" -o -name "requirements.txt" \
-  -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "package.json" \
-  -o -name "*.rb" -o -name "Gemfile" \
-  -o -name "*.rs" -o -name "Cargo.toml" \
+     -o -name "*.py" -o -name "pyproject.toml" -o -name "setup.py" -o -name "requirements.txt" \
+     -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "package.json" \
+     -o -name "*.rb" -o -name "Gemfile" \
+     -o -name "*.rs" -o -name "Cargo.toml" \
   \) 2>/dev/null | head -40
-```
 
-**Available tools** — check exactly what is installed:
-```bash
-for tool in jq git gofmt black prettier eslint rustfmt rubocop node python3; do
+# Tools
+for tool in jq git gofmt black prettier eslint rustfmt; do
   path=$(which "$tool" 2>/dev/null) && echo "$tool: $path" || echo "$tool: not found"
 done
-```
 
-**Source structure** — find real source dirs (not vendor/test/generated):
-```bash
+# Directory structure (find real source dirs)
 find . -maxdepth 3 -type d \
-  -not -path '*/\.*' \
-  -not -path '*/vendor/*' \
-  -not -path '*/node_modules/*' \
-  -not -path '*/dist/*' \
-  -not -path '*/__pycache__/*' \
-  -not -path '*/.venv/*' \
-  -not -path '*/venv/*' \
+  -not -path '*/\.*' -not -path '*/vendor/*' \
+  -not -path '*/node_modules/*' -not -path '*/dist/*' \
+  -not -path '*/__pycache__/*' -not -path '*/.venv/*' \
   2>/dev/null | head -30
 ```
 
-Also identify ignored path patterns for this project (e.g. `*.pb.go`, `*_generated.*`, `mock_*`).
+### Step 2: Decide on Layers
 
-### Step 2: Create `.semantic-pr-zoom.json`
+Based on what you find, choose an appropriate zoom hierarchy for this project. The layers go from coarsest to finest — the user starts at the top and zooms into finer detail.
 
-Create a config file in the project root using the actual values found above. Example structure:
+**Choose layer depth based on project complexity:**
+
+- **Simple project** (single language, flat structure):
+  ```
+  package → symbol → diff
+  ```
+- **Layered project** (clear domain boundaries, multiple packages):
+  ```
+  domain → package → symbol → diff
+  ```
+- **Monorepo / multi-service**:
+  ```
+  service → package → symbol → diff
+  ```
+- **Frontend / component-based**:
+  ```
+  feature-area → component → prop/export → diff
+  ```
+
+Use the project's own vocabulary — if it has "modules", call them modules; if it has "domains" or "services", use those names.
+
+**The last layer is always a diff layer** (contains hunks + lines, no children).
+
+### Step 3: Create `.semantic-pr-zoom.json`
 
 ```json
 {
-  "version": "1.0",
+  "version": "2.0",
   "languages": ["go"],
+  "layers": [
+    { "id": "package", "title": "Packages", "description": "Top-level Go packages affected by this PR" },
+    { "id": "symbol",  "title": "Symbols",  "description": "Functions, types, and methods changed" },
+    { "id": "diff",    "title": "Diffs",    "description": "Line-level changes per symbol" }
+  ],
   "source_dirs": ["pkg/", "cmd/", "internal/"],
   "ignored_dirs": ["vendor/", "dist/", ".venv/"],
   "ignored_patterns": ["*.pb.go", "*_generated.go"],
   "tools": {
     "git": "/usr/bin/git",
-    "jq": "/usr/bin/jq",
+    "jq":  "/usr/bin/jq",
     "gofmt": "/usr/local/go/bin/gofmt"
   },
   "scripts_dir": "scripts/semantic-review"
 }
 ```
 
-Only include tools that were actually found. Use the exact paths from `which`.
-
-### Step 3: Create Scripts Directory
-
-```bash
-mkdir -p scripts/semantic-review
-```
+Use the actual layers you decided on in Step 2. Only include tools that were found.
 
 ### Step 4: Generate `scripts/semantic-review/build_layers.sh`
 
-This is the **only script** you need to generate. It is a self-contained bash script that:
-1. Parses the unified diff to build all three layers
-2. Uses `grep`/`awk`/`git` for symbol extraction — no compiled helpers, no extra scripts
-3. Uses `jq` for JSON assembly if available, otherwise falls back to `python3 -c` or `node -e`
+Generate a single bash script that produces a v2 semantic review JSON — a flat list of `nodes` where each node has an `id`, `layer`, `parent` (ID of parent node or null), `title`, `summary`, `change_type`, and `meta`.
 
-Write the script to match this project's actual languages and directory structure. The script is called as:
+Call signature:
 ```bash
 bash scripts/semantic-review/build_layers.sh \
   --diff-file /tmp/pr.patch \
-  --pr-json /tmp/pr.json \
-  --output /tmp/review.json
+  --pr-json   /tmp/pr.json \
+  --output    /tmp/review.json
 ```
 
-#### Structure of `build_layers.sh`
+#### Script structure
 
-The script must implement these sections. Fill in the language-specific `grep` patterns and paths based on what you actually found in Step 1.
-
-**Header and argument parsing:**
+**1. Argument parsing and setup:**
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-
-DIFF_FILE=""
-PR_JSON=""
-OUTPUT=""
-
+DIFF_FILE="" PR_JSON="" OUTPUT=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --diff-file) DIFF_FILE="$2"; shift 2 ;;
     --pr-json)   PR_JSON="$2";   shift 2 ;;
     --output)    OUTPUT="$2";    shift 2 ;;
-    *) echo "Unknown argument: $1" >&2; exit 1 ;;
+    *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
-
 [[ -z "$DIFF_FILE" ]] && { echo "ERROR: --diff-file required" >&2; exit 1; }
 [[ -z "$PR_JSON"   ]] && { echo "ERROR: --pr-json required"   >&2; exit 1; }
 [[ -z "$OUTPUT"    ]] && OUTPUT="/dev/stdout"
 ```
 
-**Diff parsing (language-agnostic, pure bash/awk):**
+**2. Parse diff with awk to extract per-file stats:**
 
-Extract changed files from unified diff using awk. For each changed file, collect:
-- File path
-- Number of insertions (`+` lines, excluding `+++` header)
-- Number of deletions (`-` lines, excluding `---` header)
-- Whether the file is new (added) or deleted
-- The raw hunks (header + lines) for Layer 3
+Use awk to walk the unified diff and collect:
+- `file` — path (from `+++ b/` lines)
+- `insertions` — count of `+` lines (not `+++`)
+- `deletions` — count of `-` lines (not `---`)
+- `is_new_file` — true if `--- /dev/null`
+- `is_deleted` — true if `+++ /dev/null`
+- Per-hunk data: header (`@@ ... @@`) and raw lines
 
-**Symbol extraction (bash + grep, language-specific):**
+**3. Group files into higher-level nodes (the layers above diff):**
 
-For each changed `.go` file, extract symbols from the current HEAD using grep:
-```bash
-# Go: functions and types
-git show HEAD:"$file" 2>/dev/null | grep -n \
-  -E "^func |^type [A-Z][A-Za-z]+ (struct|interface)" \
-  | awk -F: '{print $1, $2}'
-```
+For each layer above diff, group files using language-appropriate logic:
 
-For each changed `.py` file:
-```bash
-# Python: top-level defs and classes
-git show HEAD:"$file" 2>/dev/null | grep -n \
-  -E "^(async )?def |^class " \
-  | awk -F: '{print $1, $2}'
-```
+- **Go packages**: `grep "^package " "$file" | head -1 | awk '{print $2}'`, or use directory name
+- **Python packages**: directory name of the file
+- **JS/TS feature areas**: directory name or nearest `package.json` `"name"` field
+- **Domain/service layers** (monorepo): top-level directory under `packages/`, `services/`, `apps/`, etc.
 
-For each changed `.ts`/`.js`/`.tsx`/`.jsx` file:
-```bash
-# TS/JS: exported functions, classes, arrow functions
-git show HEAD:"$file" 2>/dev/null | grep -n \
-  -E "^export (default )?(async function|function|class|const [A-Za-z])" \
-  | awk -F: '{print $1, $2}'
-```
+Aggregate stats for each group: sum insertions + deletions + files_changed across member files.
 
-Only generate patterns for languages that are actually present in this project.
+**4. Extract symbols using grep (language-specific patterns):**
 
-**Before-state signatures:**
+For each changed file (using `git show HEAD:"$file"` for current content):
 
-For symbols in modified files (not new files), get the base-branch version:
-```bash
-BASE_REF=$(jq -r '.baseRefName' "$PR_JSON")
-git show "origin/${BASE_REF}:${file}" 2>/dev/null | grep -n \
-  -E "<same pattern as above>"
-```
+- **Go:**
+  ```bash
+  git show HEAD:"$file" 2>/dev/null | grep -n \
+    -E "^func |^type [A-Z][A-Za-z0-9_]+ (struct|interface)" \
+    | awk -F: '{print $1"\t"$2}'
+  ```
 
-If `git show origin/${BASE_REF}:${file}` fails (e.g. new file), treat `signature_before` as `null`.
+- **Python:**
+  ```bash
+  git show HEAD:"$file" 2>/dev/null | grep -n \
+    -E "^(async )?def |^class " \
+    | awk -F: '{print $1"\t"$2}'
+  ```
 
-**Formatting-only hunk detection:**
+- **TypeScript/JavaScript:**
+  ```bash
+  git show HEAD:"$file" 2>/dev/null | grep -n \
+    -E "^export (default )?(async function|function|class|const [A-Za-z])" \
+    | awk -F: '{print $1"\t"$2}'
+  ```
+
+Only generate patterns for languages present in this project.
+
+For the `signature_before` field, run the same grep on `git show "origin/${BASE_REF}:${file}"` (the base branch version). If that fails (new file), set `signature_before` to `null`.
+
+**5. Formatting-only detection:**
 
 If `gofmt` is available and the file is `.go`:
 ```bash
-# A hunk is formatting-only if gofmt produces the same diff as the PR diff
-GOFMT_DIFF=$(git show HEAD:"$file" 2>/dev/null | gofmt -d 2>/dev/null || true)
-# Compare hunk content to gofmt output; if they match, mark is_formatting_only=true
+gofmt_diff=$(git show HEAD:"$file" 2>/dev/null | gofmt -d 2>/dev/null || true)
 ```
+Compare to the actual hunk; if they match, set `is_formatting_only: true`.
 
-If `black` is available and the file is `.py`:
+If `black` is available and `.py`:
 ```bash
-BLACK_DIFF=$(git show HEAD:"$file" 2>/dev/null | black --check --diff - 2>/dev/null || true)
+black_diff=$(git show HEAD:"$file" 2>/dev/null | black --check --diff - 2>/dev/null || true)
 ```
 
-If neither is available, set `is_formatting_only: false` for all hunks.
+Otherwise default to `false`.
 
-**Package / module grouping:**
+**6. Assemble nodes in layer order (coarsest first):**
 
-For Go: extract package name from file header:
-```bash
-git show HEAD:"$file" 2>/dev/null | grep "^package " | head -1 | awk '{print $2}'
+Emit nodes using `jq` (or `python3 -c`/`node -e` if jq unavailable). Each node:
+
+```json
+{
+  "id": "pkg-auth",
+  "layer": "package",
+  "parent": null,
+  "title": "auth",
+  "summary": "JWT validation and token refresh logic added",
+  "change_type": "modified",
+  "meta": { "files_changed": 3, "insertions": 120, "deletions": 30, "change_pct": 45 }
+}
 ```
 
-For Python: use the directory name as package:
-```bash
-dirname "$file" | sed 's|^\./||'
+```json
+{
+  "id": "sym-auth-ValidateToken",
+  "layer": "symbol",
+  "parent": "pkg-auth",
+  "title": "ValidateToken",
+  "summary": "New function to validate JWT tokens",
+  "change_type": "added",
+  "meta": {
+    "kind": "function",
+    "file": "auth/jwt.go",
+    "signature_before": null,
+    "signature_after": "func ValidateToken(token string) (*Claims, error)"
+  }
+}
 ```
 
-For JS/TS: use the directory name, or read `"name"` from nearest `package.json`:
-```bash
-dir=$(dirname "$file")
-pkg_json=$(find "$dir" -maxdepth 2 -name "package.json" 2>/dev/null | head -1)
-[[ -n "$pkg_json" ]] && jq -r '.name // empty' "$pkg_json" 2>/dev/null || echo "$dir"
+```json
+{
+  "id": "diff-auth-jwt-ValidateToken",
+  "layer": "diff",
+  "parent": "sym-auth-ValidateToken",
+  "title": "auth/jwt.go",
+  "summary": null,
+  "change_type": "added",
+  "meta": {
+    "file": "auth/jwt.go",
+    "hunks": [
+      {
+        "header": "@@ -10,0 +10,20 @@",
+        "is_formatting_only": false,
+        "lines": [
+          { "type": "insert", "content": "func ValidateToken(token string) (*Claims, error) {" },
+          { "type": "insert", "content": "\t// validate signature" }
+        ]
+      }
+    ]
+  }
+}
 ```
 
-Only generate the language branches that are present in this project.
+**Node IDs** must be unique. Use a slug pattern: `{layer}-{sanitized-title}` with a counter suffix if needed.
 
-**JSON assembly:**
+**Parent assignment:** Files that belong to a package get that package's node ID as parent. Symbols get their file's diff node's parent (the symbol node). Diff nodes get the symbol node as parent. If there is no symbol-level layer (e.g., layers are just `package → diff`), diff nodes get the package node as parent.
 
-Assemble the final JSON using `jq` if available:
-```bash
-if command -v jq &>/dev/null; then
-  jq -n \
-    --argjson pr "$(cat "$PR_JSON")" \
-    --argjson packages "$PACKAGES_JSON" \
-    --argjson symbols "$SYMBOLS_JSON" \
-    --argjson diffs "$DIFFS_JSON" \
-    '{
-      version: "1.0",
-      generated_at: (now | todate),
-      pr: {
-        number: $pr.number,
-        title: $pr.title,
-        url: $pr.url,
-        base: $pr.baseRefName,
-        head: $pr.headRefName
-      },
-      layers: [
-        { id: "packages", title: "Package / Module Overview",
-          description: "High-level summary of which packages were affected.",
-          items: $packages },
-        { id: "symbols", title: "Classes / Functions / Structs",
-          description: "Symbols added, modified, or deleted.",
-          items: $symbols },
-        { id: "diffs", title: "Line-level Diffs",
-          description: "Raw unified diff organized by file.",
-          items: $diffs }
-      ]
-    }' > "$OUTPUT"
-else
-  # Fallback: use python3 or node to serialize the assembled data as JSON
-  # (build the data structure in bash variables, then print via python3/node)
-  python3 -c "
-import json, sys
-data = { ... }  # assembled from bash variables passed via stdin or env
-json.dump(data, sys.stdout, indent=2)
-" > "$OUTPUT"
-fi
+**7. Wrap in final JSON:**
+
+```json
+{
+  "version": "2.0",
+  "generated_at": "<ISO8601 from date -u +%Y-%m-%dT%H:%M:%SZ>",
+  "pr": {
+    "number": <from pr.json>,
+    "title":  <from pr.json>,
+    "url":    <from pr.json>,
+    "base":   <baseRefName from pr.json>,
+    "head":   <headRefName from pr.json>
+  },
+  "layers": <copy from .semantic-pr-zoom.json>,
+  "nodes":  <assembled array>
+}
 ```
 
-Build `$PACKAGES_JSON`, `$SYMBOLS_JSON`, and `$DIFFS_JSON` as properly escaped JSON strings before calling `jq -n`. Use `jq -n '[...]'` to accumulate arrays incrementally, or build with a heredoc and `jq -s '.'`.
+Use `jq -n --argjson` to assemble cleanly. Fall back to `python3 -c "import json,sys; ..."` if jq is absent.
 
-**Compute `change_pct`** per package:
-```
-change_pct = round(100 * (insertions + deletions) / max(insertions + deletions + unchanged_lines, 1))
-```
-Approximation is fine — use `insertions + deletions` across all files in the package.
-
-### Step 5: Make Script Executable and Validate
+### Step 5: Make Executable and Smoke Test
 
 ```bash
 chmod +x scripts/semantic-review/build_layers.sh
-
-# Quick smoke test: verify it runs without args (should print usage error, not crash)
-bash scripts/semantic-review/build_layers.sh 2>&1 | grep -i "required\|error\|usage" || true
+bash scripts/semantic-review/build_layers.sh 2>&1 | grep -i "required\|error" || true
 ```
 
 ### Step 6: Report
 
-Print a summary:
 ```
-✅ semantic-pr-zoom initialized!
+✅ semantic-zoom-review initialized!
 
-Languages detected: Go
-Source dirs:        pkg/, cmd/, internal/
+Layers (zoom hierarchy):
+  1. Packages  — top-level Go packages
+  2. Symbols   — functions, types, methods
+  3. Diffs     — line-level changes
 
 Script: scripts/semantic-review/build_layers.sh
 Config: .semantic-pr-zoom.json
 
-Tools used for analysis:
-  git:   /usr/bin/git  ✓
-  jq:    /usr/bin/jq   ✓  (JSON assembly)
-  gofmt: /usr/local/go/bin/gofmt  ✓  (formatting detection)
+Tools:
+  git:   /usr/bin/git   ✓
+  jq:    /usr/bin/jq    ✓
+  gofmt: /usr/local/go/bin/gofmt  ✓
 
-Not found (optional):
-  black  — install with: pip install black
-
-Next: run /create-semantic-review <PR-number>
+Next: /create-semantic-review <PR-number>
 ```
 
-**IMPORTANT:** Do not create `main.go`, `cmd/`, or any compiled binary. Do not create separate per-language scripts. The entire analysis lives in one bash script: `scripts/semantic-review/build_layers.sh`.
+**Do not create** `main.go`, compiled binaries, or separate per-language scripts.

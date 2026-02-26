@@ -1,145 +1,96 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/semantic-pr-zoom/semantic-review.schema.json",
+  "$id": "https://github.com/yeger00/semantic-review-zoom/schema/semantic-review.schema.json",
   "title": "SemanticReview",
-  "description": "Structured semantic review of a pull request with three analysis layers",
+  "description": "Semantic zoom review of a pull request. Nodes form a tree via parent IDs; the number and meaning of layers is project-defined.",
   "type": "object",
-  "required": ["version", "generated_at", "pr", "layers"],
+  "required": ["version", "generated_at", "pr", "layers", "nodes"],
   "properties": {
-    "version": {
-      "type": "string",
-      "description": "Schema version",
-      "enum": ["1.0"]
-    },
-    "generated_at": {
-      "type": "string",
-      "format": "date-time",
-      "description": "ISO 8601 timestamp of when the review was generated"
-    },
+    "version": { "type": "string", "enum": ["2.0"] },
+    "generated_at": { "type": "string", "format": "date-time" },
     "pr": {
       "type": "object",
       "required": ["number", "title", "url", "base", "head"],
       "properties": {
         "number": { "type": "integer", "minimum": 1 },
-        "title": { "type": "string" },
-        "url": { "type": "string", "format": "uri" },
-        "base": { "type": "string", "description": "Base branch name" },
-        "head": { "type": "string", "description": "Head branch name" }
+        "title":  { "type": "string" },
+        "url":    { "type": "string", "format": "uri" },
+        "base":   { "type": "string" },
+        "head":   { "type": "string" }
       },
       "additionalProperties": false
     },
     "layers": {
+      "description": "Ordered layer definitions from coarsest to finest. Project-defined; any number ≥ 1.",
       "type": "array",
-      "minItems": 3,
-      "maxItems": 3,
+      "minItems": 1,
       "items": {
-        "oneOf": [
-          { "$ref": "#/definitions/PackageLayer" },
-          { "$ref": "#/definitions/SymbolLayer" },
-          { "$ref": "#/definitions/DiffLayer" }
-        ]
+        "type": "object",
+        "required": ["id", "title"],
+        "properties": {
+          "id":          { "type": "string" },
+          "title":       { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": false
       }
+    },
+    "nodes": {
+      "description": "Flat list of all review nodes. Each node belongs to a layer and optionally has a parent node in the layer above it.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/ReviewNode" }
     }
   },
   "additionalProperties": false,
   "definitions": {
-    "PackageLayer": {
+    "ReviewNode": {
       "type": "object",
-      "required": ["id", "title", "description", "items"],
+      "required": ["id", "layer", "parent", "title", "summary", "change_type", "meta"],
       "properties": {
-        "id": { "type": "string", "enum": ["packages"] },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "items": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["name", "kind", "change_type", "change_pct", "summary", "files_changed", "insertions", "deletions"],
-            "properties": {
-              "name": { "type": "string" },
-              "kind": { "type": "string", "enum": ["package", "module"] },
-              "change_type": { "type": "string", "enum": ["added", "modified", "deleted"] },
-              "change_pct": { "type": "number", "minimum": 0, "maximum": 100 },
-              "summary": { "type": "string" },
-              "files_changed": { "type": "integer", "minimum": 0 },
-              "insertions": { "type": "integer", "minimum": 0 },
-              "deletions": { "type": "integer", "minimum": 0 }
-            },
-            "additionalProperties": false
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "SymbolLayer": {
-      "type": "object",
-      "required": ["id", "title", "description", "items"],
-      "properties": {
-        "id": { "type": "string", "enum": ["symbols"] },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "items": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["name", "kind", "file", "change_type", "signature_before", "signature_after", "summary"],
-            "properties": {
-              "name": { "type": "string" },
-              "kind": { "type": "string", "enum": ["function", "struct", "class", "method", "interface"] },
-              "file": { "type": "string" },
-              "change_type": { "type": "string", "enum": ["added", "modified", "deleted"] },
-              "signature_before": { "type": ["string", "null"] },
-              "signature_after": { "type": ["string", "null"] },
-              "summary": { "type": "string" }
-            },
-            "additionalProperties": false
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "DiffLayer": {
-      "type": "object",
-      "required": ["id", "title", "description", "items"],
-      "properties": {
-        "id": { "type": "string", "enum": ["diffs"] },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "items": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["file", "package", "hunks"],
-            "properties": {
-              "file": { "type": "string" },
-              "package": { "type": "string" },
-              "hunks": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "required": ["header", "is_formatting_only", "lines"],
-                  "properties": {
-                    "header": { "type": "string" },
-                    "is_formatting_only": { "type": "boolean" },
-                    "lines": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "required": ["type", "content"],
-                        "properties": {
-                          "type": { "type": "string", "enum": ["insert", "delete", "context"] },
-                          "content": { "type": "string" }
-                        },
-                        "additionalProperties": false
-                      }
+        "id":          { "type": "string", "description": "Unique node identifier" },
+        "layer":       { "type": "string", "description": "Layer ID this node belongs to (must match a layers[].id)" },
+        "parent":      { "type": ["string", "null"], "description": "ID of parent node, or null for root-level nodes" },
+        "title":       { "type": "string", "description": "Short display name" },
+        "summary":     { "type": ["string", "null"], "description": "One-sentence description of the change" },
+        "change_type": { "type": ["string", "null"], "enum": ["added", "modified", "deleted", null] },
+        "meta": {
+          "type": "object",
+          "description": "Layer-specific metadata. Well-known shapes: group meta (files_changed, insertions, deletions, change_pct), symbol meta (kind, file, signature_before, signature_after), diff meta (file, hunks[]).",
+          "properties": {
+            "files_changed":     { "type": "integer" },
+            "insertions":        { "type": "integer" },
+            "deletions":         { "type": "integer" },
+            "change_pct":        { "type": "number", "minimum": 0, "maximum": 100 },
+            "kind":              { "type": "string" },
+            "file":              { "type": "string" },
+            "signature_before":  { "type": ["string", "null"] },
+            "signature_after":   { "type": ["string", "null"] },
+            "hunks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["header", "is_formatting_only", "lines"],
+                "properties": {
+                  "header":             { "type": "string" },
+                  "is_formatting_only": { "type": "boolean" },
+                  "lines": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["type", "content"],
+                      "properties": {
+                        "type":    { "type": "string", "enum": ["insert", "delete", "context"] },
+                        "content": { "type": "string" }
+                      },
+                      "additionalProperties": false
                     }
-                  },
-                  "additionalProperties": false
-                }
+                  }
+                },
+                "additionalProperties": false
               }
-            },
-            "additionalProperties": false
-          }
+            }
+          },
+          "additionalProperties": true
         }
       },
       "additionalProperties": false

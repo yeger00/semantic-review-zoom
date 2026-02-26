@@ -1,95 +1,103 @@
 import { useState } from 'react'
 import FileInput from './components/FileInput'
-import LayerNav from './components/LayerNav'
-import PackageLayer from './components/layers/PackageLayer'
-import SymbolLayer from './components/layers/SymbolLayer'
-import DiffLayer from './components/layers/DiffLayer'
-import { getPackageLayer, getSymbolLayer, getDiffLayer, type SemanticReview } from './lib/parser'
+import ZoomView from './components/ZoomView'
+import { type SemanticReview } from './lib/parser'
 
 export default function App() {
   const [review, setReview] = useState<SemanticReview | null>(null)
-  const [activeTab, setActiveTab] = useState('packages')
+  /** Stack of node IDs the user has zoomed into. Empty = root level. */
+  const [path, setPath] = useState<string[]>([])
 
   function handleLoad(r: SemanticReview) {
     setReview(r)
-    setActiveTab('packages')
+    setPath([])
   }
 
   function handleBack() {
     setReview(null)
+    setPath([])
+  }
+
+  function zoomIn(nodeId: string) {
+    setPath((p) => [...p, nodeId])
+  }
+
+  /** Jump to a specific depth in the breadcrumb (0 = root). */
+  function zoomTo(depth: number) {
+    setPath((p) => p.slice(0, depth))
   }
 
   if (!review) {
     return <FileInput onLoad={handleLoad} />
   }
 
-  const packageLayer = getPackageLayer(review)
-  const symbolLayer = getSymbolLayer(review)
-  const diffLayer = getDiffLayer(review)
-
-  const NAV_HEIGHT = 76
+  const currentNode = path.length > 0
+    ? review.nodes.find((n) => n.id === path[path.length - 1])
+    : null
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <header
-        style={{
-          background: '#161b22',
-          borderBottom: '1px solid #30363d',
-          padding: '10px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          flexShrink: 0,
-        }}
-      >
-        <button
-          onClick={handleBack}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#8b949e',
-            cursor: 'pointer',
-            fontSize: 18,
-            padding: '4px 8px',
-            minHeight: 36,
-            flexShrink: 0,
-          }}
-          aria-label="Load another file"
-        >
-          ←
-        </button>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div
+      <header style={{
+        background: '#161b22',
+        borderBottom: '1px solid #30363d',
+        padding: '10px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        flexShrink: 0,
+      }}>
+        {path.length > 0 ? (
+          <button
+            onClick={() => zoomTo(path.length - 1)}
             style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: '#e6edf3',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              background: 'none', border: 'none', color: '#8b949e',
+              cursor: 'pointer', fontSize: 18, padding: '4px 8px',
+              minHeight: 36, flexShrink: 0,
             }}
+            aria-label="Zoom out"
           >
-            #{review.pr.number} {review.pr.title}
+            ←
+          </button>
+        ) : (
+          <button
+            onClick={handleBack}
+            style={{
+              background: 'none', border: 'none', color: '#8b949e',
+              cursor: 'pointer', fontSize: 18, padding: '4px 8px',
+              minHeight: 36, flexShrink: 0,
+            }}
+            aria-label="Load another file"
+          >
+            ←
+          </button>
+        )}
+
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{
+            fontSize: 14, fontWeight: 600, color: '#e6edf3',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {currentNode ? currentNode.title : `#${review.pr.number} ${review.pr.title}`}
           </div>
           <div style={{ fontSize: 11, color: '#8b949e', marginTop: 1 }}>
-            {review.pr.head} → {review.pr.base}
+            {currentNode
+              ? review.pr.title
+              : `${review.pr.head} → ${review.pr.base}`}
           </div>
         </div>
       </header>
 
-      {/* Layer panel */}
-      <main
-        style={{ flex: 1, overflowY: 'auto', paddingBottom: NAV_HEIGHT }}
-        role="tabpanel"
-        aria-label={activeTab}
-      >
-        {activeTab === 'packages' && packageLayer && <PackageLayer layer={packageLayer} />}
-        {activeTab === 'symbols' && symbolLayer && <SymbolLayer layer={symbolLayer} />}
-        {activeTab === 'diffs' && diffLayer && <DiffLayer layer={diffLayer} />}
-      </main>
-
-      <LayerNav activeTab={activeTab} onChange={setActiveTab} />
+      {/* Zoom view */}
+      <div style={{ flex: 1, overflow: 'hidden' }}>
+        <ZoomView
+          nodes={review.nodes}
+          layers={review.layers}
+          path={path}
+          onZoomIn={zoomIn}
+          onZoomTo={zoomTo}
+        />
+      </div>
     </div>
   )
 }

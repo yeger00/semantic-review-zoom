@@ -1,10 +1,10 @@
 # create-semantic-review
 
-Generate a semantic PR review and save it as a `.md` file. Usage: `/create-semantic-review <PR-number-or-URL>`
+Generate a semantic zoom review and save it as a `.md` file. Usage: `/create-semantic-review <PR-number-or-URL>`
 
 ## Instructions
 
-You are generating a structured semantic review for a pull request and saving it as a markdown file that can be loaded into the semantic-pr-zoom web app.
+You are generating a structured semantic zoom review (v2.0) for a pull request and saving it as a markdown file that can be loaded into the semantic-review-zoom web app. The JSON contains a flat list of nodes forming a zoom tree — root nodes at the top, diff nodes at the leaves.
 
 ### Step 1: Parse Arguments
 

@@ -1,23 +1,13 @@
-export interface PackageItem {
-  name: string
-  kind: 'package' | 'module'
-  change_type: 'added' | 'modified' | 'deleted'
-  change_pct: number
-  summary: string
-  files_changed: number
-  insertions: number
-  deletions: number
+// ── Layer definitions ────────────────────────────────────────────────────────
+
+export interface LayerDef {
+  id: string
+  title: string
+  description?: string
 }
 
-export interface SymbolItem {
-  name: string
-  kind: 'function' | 'struct' | 'class' | 'method' | 'interface'
-  file: string
-  change_type: 'added' | 'modified' | 'deleted'
-  signature_before: string | null
-  signature_after: string | null
-  summary: string
-}
+// ── Node meta shapes ─────────────────────────────────────────────────────────
+// meta is open (additionalProperties: true), but we recognise these shapes.
 
 export interface DiffLine {
   type: 'insert' | 'delete' | 'context'
@@ -30,18 +20,46 @@ export interface Hunk {
   lines: DiffLine[]
 }
 
-export interface DiffItem {
-  file: string
-  package: string
+/** Node whose meta contains diff hunks — always a leaf. */
+export interface DiffMeta {
+  file?: string
   hunks: Hunk[]
+  [key: string]: unknown
 }
 
-export interface Layer<T> {
-  id: 'packages' | 'symbols' | 'diffs'
-  title: string
-  description: string
-  items: T[]
+/** Node whose meta contains symbol signature info. */
+export interface SymbolMeta {
+  kind?: string
+  file?: string
+  signature_before?: string | null
+  signature_after?: string | null
+  [key: string]: unknown
 }
+
+/** Node whose meta contains aggregate stats (packages, domains, services…). */
+export interface GroupMeta {
+  files_changed?: number
+  insertions?: number
+  deletions?: number
+  change_pct?: number
+  [key: string]: unknown
+}
+
+export type NodeMeta = DiffMeta | SymbolMeta | GroupMeta | Record<string, unknown>
+
+// ── Core node type ────────────────────────────────────────────────────────────
+
+export interface ReviewNode {
+  id: string
+  layer: string
+  parent: string | null
+  title: string
+  summary: string | null
+  change_type: 'added' | 'modified' | 'deleted' | null
+  meta: NodeMeta
+}
+
+// ── Top-level review ──────────────────────────────────────────────────────────
 
 export interface SemanticReview {
   version: string
@@ -53,8 +71,50 @@ export interface SemanticReview {
     base: string
     head: string
   }
-  layers: [Layer<PackageItem>, Layer<SymbolItem>, Layer<DiffItem>]
+  /** Ordered from coarsest to finest; project-defined. */
+  layers: LayerDef[]
+  /** Flat list; form a tree via parent IDs. */
+  nodes: ReviewNode[]
 }
+
+// ── Type guards ───────────────────────────────────────────────────────────────
+
+export function isDiffMeta(meta: NodeMeta): meta is DiffMeta {
+  return Array.isArray((meta as DiffMeta).hunks)
+}
+
+export function isSymbolMeta(meta: NodeMeta): meta is SymbolMeta {
+  const m = meta as SymbolMeta
+  return !isDiffMeta(meta) && (m.signature_after !== undefined || m.signature_before !== undefined)
+}
+
+// ── Tree helpers ──────────────────────────────────────────────────────────────
+
+export function getChildren(nodes: ReviewNode[], parentId: string | null): ReviewNode[] {
+  return nodes.filter((n) => n.parent === parentId)
+}
+
+export function hasChildren(nodes: ReviewNode[], nodeId: string): boolean {
+  return nodes.some((n) => n.parent === nodeId)
+}
+
+export function getNode(nodes: ReviewNode[], id: string): ReviewNode | undefined {
+  return nodes.find((n) => n.id === id)
+}
+
+/** Walk up from a node id to root, returning the ancestor chain (root first). */
+export function getAncestors(nodes: ReviewNode[], id: string): ReviewNode[] {
+  const map = new Map(nodes.map((n) => [n.id, n]))
+  const path: ReviewNode[] = []
+  let current = map.get(id)
+  while (current) {
+    path.unshift(current)
+    current = current.parent ? map.get(current.parent) : undefined
+  }
+  return path
+}
+
+// ── Parser ────────────────────────────────────────────────────────────────────
 
 const START_MARKER = '<!-- semantic-pr-zoom -->'
 const END_MARKER = '<!-- /semantic-pr-zoom -->'
@@ -65,26 +125,15 @@ export function parseSemanticComment(body: string): SemanticReview | null {
   if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) return null
 
   const between = body.slice(startIdx + START_MARKER.length, endIdx).trim()
-
-  // Strip optional markdown code fence (```json ... ```)
+  // Strip optional markdown code fence
   const fenced = between.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/m)
   const jsonStr = fenced ? fenced[1] : between
 
   try {
-    return JSON.parse(jsonStr) as SemanticReview
+    const parsed = JSON.parse(jsonStr)
+    if (parsed.version !== '2.0') return null
+    return parsed as SemanticReview
   } catch {
     return null
   }
-}
-
-export function getPackageLayer(review: SemanticReview): Layer<PackageItem> {
-  return review.layers.find((l) => l.id === 'packages') as Layer<PackageItem>
-}
-
-export function getSymbolLayer(review: SemanticReview): Layer<SymbolItem> {
-  return review.layers.find((l) => l.id === 'symbols') as Layer<SymbolItem>
-}
-
-export function getDiffLayer(review: SemanticReview): Layer<DiffItem> {
-  return review.layers.find((l) => l.id === 'diffs') as Layer<DiffItem>
 }
