@@ -22,7 +22,7 @@ test -f .semantic-pr-zoom.json || echo "ERROR: Run /init-semantic-review first"
 
 Check that the build_layers script exists:
 ```bash
-test -f scripts/semantic-review/build_layers.py || echo "ERROR: Run /init-semantic-review first"
+test -f scripts/semantic-review/build_layers.sh || echo "ERROR: Run /init-semantic-review first"
 ```
 
 If either check fails, stop and instruct the user to run `/init-semantic-review` first.
@@ -52,10 +52,9 @@ gh pr commits <PR> --json oid,messageHeadline > /tmp/spz-commits.json
 ### Step 6: Run Semantic Analysis
 
 ```bash
-python3 scripts/semantic-review/build_layers.py \
+bash scripts/semantic-review/build_layers.sh \
   --diff-file /tmp/spz-diff.patch \
   --pr-json /tmp/spz-pr.json \
-  --commits-json /tmp/spz-commits.json \
   --output /tmp/spz-review.json
 ```
 
