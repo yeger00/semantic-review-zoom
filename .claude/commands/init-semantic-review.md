@@ -116,9 +116,29 @@ done
 [[ -z "$OUTPUT"    ]] && OUTPUT="/dev/stdout"
 ```
 
-**2. Parse diff with awk to extract per-file stats:**
+**2. Enumerate ALL nodes at every layer — not just changed ones**
 
-Use awk to walk the unified diff and collect:
+The graph visualization shows the full project structure. Changed nodes are large and coloured; unchanged nodes are small white dots that give spatial context. **Do not filter to only changed files.**
+
+For each layer, enumerate everything:
+
+- **Top layers (package/service/domain)**: list ALL packages or directories that exist in the source dirs, even if they have zero changes. Use `find` or `git ls-files` to discover them:
+  ```bash
+  # All Go packages (by directory with .go files)
+  git ls-files '*.go' | xargs -I{} dirname {} | sort -u | grep -v vendor
+  # All Python packages (directories with __init__.py or .py files)
+  git ls-files '*.py' | xargs -I{} dirname {} | sort -u
+  ```
+
+- **Symbol layer**: list all top-level symbols in each changed file (grep current HEAD). For unchanged files, omit the symbol layer nodes (too many) — only emit symbol nodes for files that appear in the diff.
+
+- **Diff layer**: only emit diff nodes for changed files (unchanged files have no hunks).
+
+For unchanged nodes set: `"change_type": null`, `"insertions": 0`, `"deletions": 0` in meta.
+
+**3. Parse diff with awk to extract per-file stats:**
+
+Use awk to walk the unified diff and collect for each changed file:
 - `file` — path (from `+++ b/` lines)
 - `insertions` — count of `+` lines (not `+++`)
 - `deletions` — count of `-` lines (not `---`)
@@ -126,18 +146,18 @@ Use awk to walk the unified diff and collect:
 - `is_deleted` — true if `+++ /dev/null`
 - Per-hunk data: header (`@@ ... @@`) and raw lines
 
-**3. Group files into higher-level nodes (the layers above diff):**
+**4. Group files into higher-level nodes (the layers above diff):**
 
-For each layer above diff, group files using language-appropriate logic:
+For each layer above diff, group ALL files (changed + unchanged) using language-appropriate logic:
 
 - **Go packages**: `grep "^package " "$file" | head -1 | awk '{print $2}'`, or use directory name
 - **Python packages**: directory name of the file
 - **JS/TS feature areas**: directory name or nearest `package.json` `"name"` field
 - **Domain/service layers** (monorepo): top-level directory under `packages/`, `services/`, `apps/`, etc.
 
-Aggregate stats for each group: sum insertions + deletions + files_changed across member files.
+Aggregate stats per group from the diff data: sum insertions + deletions + files_changed. Groups with no changed files get insertions=0, deletions=0, files_changed=0 and change_type=null.
 
-**4. Extract symbols using grep (language-specific patterns):**
+**5. Extract symbols using grep (language-specific patterns):**
 
 For each changed file (using `git show HEAD:"$file"` for current content):
 
@@ -166,7 +186,7 @@ Only generate patterns for languages present in this project.
 
 For the `signature_before` field, run the same grep on `git show "origin/${BASE_REF}:${file}"` (the base branch version). If that fails (new file), set `signature_before` to `null`.
 
-**5. Formatting-only detection:**
+**6. Formatting-only detection:**
 
 If `gofmt` is available and the file is `.go`:
 ```bash
@@ -181,7 +201,7 @@ black_diff=$(git show HEAD:"$file" 2>/dev/null | black --check --diff - 2>/dev/n
 
 Otherwise default to `false`.
 
-**6. Assemble nodes in layer order (coarsest first):**
+**7. Assemble nodes in layer order (coarsest first):**
 
 Emit nodes using `jq` (or `python3 -c`/`node -e` if jq unavailable). Each node:
 
@@ -242,7 +262,7 @@ Emit nodes using `jq` (or `python3 -c`/`node -e` if jq unavailable). Each node:
 
 **Parent assignment:** Files that belong to a package get that package's node ID as parent. Symbols get their file's diff node's parent (the symbol node). Diff nodes get the symbol node as parent. If there is no symbol-level layer (e.g., layers are just `package → diff`), diff nodes get the package node as parent.
 
-**7. Wrap in final JSON:**
+**8. Wrap in final JSON:**
 
 ```json
 {

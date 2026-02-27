@@ -84,21 +84,39 @@ Both files work with the web app. The `.json` file is the raw review; the `.md` 
 
 ### Step 7: Print Confirmation
 
-Parse the layer counts from `/tmp/spz-review.json` and print:
+Parse `/tmp/spz-review.json` to count nodes per layer and print:
 
 ```
 ✅ Semantic review saved!
 
-PR:   #42 — <title>
-File: semantic-review-42.md
+PR:    #42 — <title>
+Files: semantic-review-42.json  (and .md)
 
-Layers:
-  📦 Packages: <N> packages
-  🔤 Symbols:  <N> symbols
-  📄 Diffs:    <N> files
+Graph layers:
+  <layer-1-title>: <N> nodes  (<M> changed)
+  <layer-2-title>: <N> nodes  (<M> changed)
+  ...
 
 To view: open https://yeger00.github.io/semantic-review-zoom/
-then drop or paste semantic-review-42.json (or .md)
+then drop semantic-review-42.json
+```
+
+Count nodes per layer with:
+```bash
+python3 - <<'EOF'
+import json
+data = json.load(open('/tmp/spz-review.json'))
+layers = {l['id']: l['title'] for l in data['layers']}
+from collections import defaultdict
+counts = defaultdict(lambda: [0, 0])  # [total, changed]
+for n in data['nodes']:
+    counts[n['layer']][0] += 1
+    if n.get('change_type'):
+        counts[n['layer']][1] += 1
+for lid, title in layers.items():
+    total, changed = counts[lid]
+    print(f"  {title}: {total} nodes  ({changed} changed)")
+EOF
 ```
 
 ### Step 8: Cleanup
