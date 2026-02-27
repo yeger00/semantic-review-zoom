@@ -119,16 +119,7 @@ export function getAncestors(nodes: ReviewNode[], id: string): ReviewNode[] {
 const START_MARKER = '<!-- semantic-pr-zoom -->'
 const END_MARKER = '<!-- /semantic-pr-zoom -->'
 
-export function parseSemanticComment(body: string): SemanticReview | null {
-  const startIdx = body.indexOf(START_MARKER)
-  const endIdx = body.indexOf(END_MARKER)
-  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) return null
-
-  const between = body.slice(startIdx + START_MARKER.length, endIdx).trim()
-  // Strip optional markdown code fence
-  const fenced = between.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/m)
-  const jsonStr = fenced ? fenced[1] : between
-
+function tryParse(jsonStr: string): SemanticReview | null {
   try {
     const parsed = JSON.parse(jsonStr)
     if (parsed.version !== '2.0') return null
@@ -136,4 +127,25 @@ export function parseSemanticComment(body: string): SemanticReview | null {
   } catch {
     return null
   }
+}
+
+export function parseSemanticComment(body: string): SemanticReview | null {
+  const trimmed = body.trim()
+
+  // 1. Raw JSON (file is just the JSON object)
+  if (trimmed.startsWith('{')) {
+    return tryParse(trimmed)
+  }
+
+  // 2. Markdown file with <!-- semantic-pr-zoom --> markers
+  const startIdx = body.indexOf(START_MARKER)
+  const endIdx = body.indexOf(END_MARKER)
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    const between = body.slice(startIdx + START_MARKER.length, endIdx).trim()
+    // Strip optional markdown code fence (```json ... ```)
+    const fenced = between.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/m)
+    return tryParse(fenced ? fenced[1] : between)
+  }
+
+  return null
 }
