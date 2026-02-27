@@ -289,6 +289,12 @@ chmod +x scripts/semantic-review/build_layers.sh
 bash scripts/semantic-review/build_layers.sh 2>&1 | grep -i "required\|error" || true
 ```
 
+Create the output directory and add it to `.gitignore` if not already present:
+```bash
+mkdir -p .semantic-review-zoom
+grep -qxF '.semantic-review-zoom/' .gitignore 2>/dev/null || echo '.semantic-review-zoom/' >> .gitignore
+```
+
 ### Step 6: Report
 
 ```

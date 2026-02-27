@@ -61,12 +61,17 @@ python3 -c "import json; json.load(open('/tmp/spz-review.json'))" && echo "JSON 
 
 ### Step 6: Save Output Files
 
-Copy the raw JSON as `semantic-review-<PR>.json` in the project root:
+Create the output directory if it doesn't exist:
 ```bash
-cp /tmp/spz-review.json semantic-review-<PR>.json
+mkdir -p .semantic-review-zoom
 ```
 
-Also write a human-readable markdown wrapper `semantic-review-<PR>.md`:
+Copy the raw JSON:
+```bash
+cp /tmp/spz-review.json .semantic-review-zoom/semantic-review-<PR>.json
+```
+
+Also write a human-readable markdown wrapper:
 ```markdown
 # Semantic Review: PR #<N> — <title>
 
@@ -80,6 +85,8 @@ Also write a human-readable markdown wrapper `semantic-review-<PR>.md`:
 <!-- /semantic-pr-zoom -->
 ```
 
+Save the markdown as `.semantic-review-zoom/semantic-review-<PR>.md`.
+
 Both files work with the web app. The `.json` file is the raw review; the `.md` wraps it with context.
 
 ### Step 7: Print Confirmation
@@ -90,7 +97,7 @@ Parse `/tmp/spz-review.json` to count nodes per layer and print:
 ✅ Semantic review saved!
 
 PR:    #42 — <title>
-Files: semantic-review-42.json  (and .md)
+Files: .semantic-review-zoom/semantic-review-42.json  (and .md)
 
 Graph layers:
   <layer-1-title>: <N> nodes  (<M> changed)
@@ -98,7 +105,7 @@ Graph layers:
   ...
 
 To view: open https://yeger00.github.io/semantic-review-zoom/
-then drop semantic-review-42.json
+then drop .semantic-review-zoom/semantic-review-42.json
 ```
 
 Count nodes per layer with:
@@ -121,11 +128,12 @@ EOF
 
 ### Step 8: Cleanup
 
+Remove only the temporary files:
 ```bash
 rm -f /tmp/spz-pr.json /tmp/spz-diff.patch /tmp/spz-review.json
 ```
 
-The output files (`semantic-review-<PR>.json` and `semantic-review-<PR>.md`) remain in the project root for the user to load.
+The output files stay in `.semantic-review-zoom/` for future reference.
 
 ## Error Handling
 
